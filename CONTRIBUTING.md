@@ -31,6 +31,7 @@ opencode loads TypeScript natively via Bun, so there is no build step required d
 | Command | Description |
 |---------|-------------|
 | `bun run typecheck` | Type-check all sources without emitting |
+| `bun test` | Run the test suite |
 
 ## Project structure
 
@@ -88,7 +89,7 @@ chore(deps): bump @opencode-ai/plugin to 1.2.23
 ## Submitting changes
 
 1. Fork the repo and create a branch from `main`: `git checkout -b feat/my-feature`
-2. Make your changes and ensure `bun run typecheck` passes
+2. Make your changes and ensure `bun run typecheck` and `bun test` pass
 3. Commit using Conventional Commits format
 4. Open a pull request — the title should also follow Conventional Commits format
 

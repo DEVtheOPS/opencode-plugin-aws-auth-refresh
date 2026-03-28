@@ -12,6 +12,12 @@ bun run typecheck
 
 There is no build step. TypeScript source files are published directly and loaded natively by Bun.
 
+## Testing
+
+```bash
+bun test
+```
+
 ## Project layout
 
 ```text
@@ -23,6 +29,7 @@ src/
 ## Key conventions
 
 - **Bun over Node** — use `bun`, `bun test`, `bun run`. Never use `node`, `npx`.
+- **No comments** unless explicitly requested.
 - **No comments** unless explicitly requested.
 - **AWS auth error patterns** — all AWS auth error detection happens in `AWS_AUTH_ERROR_PATTERNS` in `src/index.ts`. Add new patterns there.
 - **Single credential refresh** — use the `refreshInProgress` flag to prevent concurrent refresh attempts.

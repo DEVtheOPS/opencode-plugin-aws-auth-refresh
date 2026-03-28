@@ -48,5 +48,8 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      - name: Test
+        run: bun test
+
       - name: Publish to npm
         run: npm publish --provenance --access public

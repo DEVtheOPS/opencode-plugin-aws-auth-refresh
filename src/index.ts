@@ -25,7 +25,7 @@ const AWS_AUTH_ERROR_PATTERNS = [
   "RequestId:",
 ]
 
-function hasAwsAuthError(output: unknown): boolean {
+export function hasAwsAuthError(output: unknown): boolean {
   const outputStr = typeof output === "string" 
     ? output.toLowerCase() 
     : JSON.stringify(output).toLowerCase()
