@@ -1,0 +1,46 @@
+{
+  "bootstrap-sha": "PLACEHOLDER",
+  "packages": {
+    ".": {
+      "changelog-sections": [
+        {
+          "section": "Features",
+          "type": "feat"
+        },
+        {
+          "section": "Bug Fixes",
+          "type": "fix"
+        },
+        {
+          "section": "Performance Improvements",
+          "type": "perf"
+        },
+        {
+          "section": "Code Refactoring",
+          "type": "refactor"
+        },
+        {
+          "section": "Documentation",
+          "type": "docs"
+        },
+        {
+          "hidden": true,
+          "section": "Continuous Integration",
+          "type": "ci"
+        },
+        {
+          "hidden": true,
+          "section": "Build System",
+          "type": "build"
+        },
+        {
+          "hidden": true,
+          "section": "Miscellaneous Chores",
+          "type": "chore"
+        }
+      ],
+      "package-name": "@devtheops/opencode-plugin-aws-auth-refresh",
+      "release-type": "node"
+    }
+  }
+}
