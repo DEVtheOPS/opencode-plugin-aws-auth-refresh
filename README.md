@@ -23,20 +23,33 @@ Place in `.opencode/plugins/aws-auth-refresh.ts` or `~/.config/opencode/plugins/
 
 ## Configuration
 
-Configure in your `opencode.json`:
+OpenCode `plugin` entries can be either a string or a `[pluginName, options]` tuple. To pass options to this plugin, use the tuple form:
 
 ```json
 {
   "plugin": [
-    ["@devtheops/opencode-plugin-aws-auth-refresh", {
-      "profile": "my-aws-profile",
-      "autoRetry": true,
-      "maxRetries": 1,
-      "ssoLoginCommand": "aws sso login --profile my-profile --no-browser"
-    }]
+    [
+      "@devtheops/opencode-plugin-aws-auth-refresh",
+      {
+        "profile": "my-aws-profile",
+        "autoRetry": true,
+        "maxRetries": 1,
+        "ssoLoginCommand": "aws sso login --profile my-aws-profile --no-browser"
+      }
+    ]
   ]
 }
 ```
+
+If you do not need any plugin-specific options, use the string form instead:
+
+```json
+{
+  "plugin": ["@devtheops/opencode-plugin-aws-auth-refresh"]
+}
+```
+
+If you prefer not to set `profile` in config, the plugin falls back to `AWS_PROFILE`, then to `default`.
 
 ### Options
 
