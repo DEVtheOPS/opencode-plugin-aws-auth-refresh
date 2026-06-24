@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.1](https://github.com/DEVtheOPS/opencode-plugin-aws-auth-refresh/compare/v0.1.0...v0.1.1) (2026-06-24)
+
+
+### Bug Fixes
+
+* detect AWS provider auth errors via session.error hook ([f266cdd](https://github.com/DEVtheOPS/opencode-plugin-aws-auth-refresh/commit/f266cdd8e341a9acbe8c53957bb9c7690f220067))
+* various issues ([6f5e4fe](https://github.com/DEVtheOPS/opencode-plugin-aws-auth-refresh/commit/6f5e4feb056f6956b3e1142631c8a1877cda14c8))
+
 ## [1.0.0] - 2026-05-21
 
 ### Added
