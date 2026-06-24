@@ -32,9 +32,11 @@ OpenCode `plugin` entries can be either a string or a `[pluginName, options]` tu
       "@devtheops/opencode-plugin-aws-auth-refresh",
       {
         "profile": "my-aws-profile",
-        "autoRetry": true,
         "maxRetries": 1,
-        "ssoLoginCommand": "aws sso login --profile my-aws-profile --no-browser"
+        "ssoLoginCommand": {
+          "command": "aws",
+          "args": ["sso", "login", "--profile", "my-aws-profile", "--no-browser"]
+        }
       }
     ]
   ]
@@ -56,21 +58,27 @@ If you prefer not to set `profile` in config, the plugin falls back to `AWS_PROF
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `profile` | `string` | `AWS_PROFILE` env or `"default"` | AWS profile to use |
-| `autoRetry` | `boolean` | `true` | Automatically retry the failed command after refresh |
-| `maxRetries` | `number` | `1` | Maximum number of retry attempts |
-| `ssoLoginCommand` | `string` | `aws sso login --profile <profile>` | Custom SSO login command |
+| `maxRetries` | `number` | `1` | Maximum number of credential refresh attempts |
+| `ssoLoginCommand` | `{ "command": string, "args"?: string[] }` | `{ "command": "aws", "args": ["sso", "login", "--profile", "<profile>"] }` | Structured custom SSO login command |
+
+### Migration Notes
+
+- `autoRetry` was removed because current OpenCode server plugin hooks do not expose a supported retry API. After credentials refresh, rerun the failed AWS command if needed.
+- Raw string `ssoLoginCommand` values are no longer supported. Use the structured `command` and `args` form so command arguments remain data rather than a precomposed shell string.
+- Diagnostics are written through `client.app.log` for troubleshooting and are not presented as clickable or session-visible UI notifications.
 
 ## How It Works
 
-1. Hooks into `tool.execute.after` to inspect tool outputs
+1. Hooks into the official `tool.execute.after(input, output)` server plugin hook for `bash` and `task` tools
 2. Detects AWS authentication error patterns:
    - `ExpiredToken`
    - `TokenRefreshRequired`
    - `The security token included in the request is expired`
    - `Unable to locate credentials`
    - And more...
-3. Runs `aws sso login` with your configured profile
-4. Optionally retries the failed command
+3. Reads the hook result from `output.output`
+4. Runs `aws sso login` with your configured profile, or the configured structured command and args
+5. Logs diagnostics through `client.app.log`; rerun the failed command manually if needed
 
 ## Detected Error Patterns
 
@@ -83,18 +91,20 @@ If you prefer not to set `profile` in config, the plugin falls back to `AWS_PROF
 - `credentials could not be found`
 - `Error retrieving credentials`
 - `EC2MetadataServiceError`
+- `RequestId:`
 
 ## Requirements
 
 - AWS CLI v2 installed
 - Valid SSO configuration in `~/.aws/config`
 
-## Example Output
+## Diagnostic Log Example
+
+These messages are written through `client.app.log` for diagnostics. They are not shown as clickable or session-visible UI notifications.
 
 ```
 [aws-auth-refresh] AWS credentials expired, running: aws sso login --profile default
 [aws-auth-refresh] AWS credentials refreshed successfully
-[aws-auth-refresh] Retrying tool after credential refresh
 ```
 
 ## License

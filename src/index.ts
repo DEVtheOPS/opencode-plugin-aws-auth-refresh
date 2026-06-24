@@ -1,18 +1,17 @@
-// This Source Code Form is subject to the terms of the Mozilla Public
-// License, v. 2.0. If a copy of the MPL was not distributed with this
-// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+import type { Plugin, PluginOptions } from "@opencode-ai/plugin"
 
-/// <reference types="./types.d.ts" />
-import type { Plugin } from "@opencode-ai/plugin"
+export interface StructuredSsoLoginCommand {
+  command: string
+  args?: string[]
+}
 
 export interface AwsAuthRefreshConfig {
   profile?: string
-  autoRetry?: boolean
   maxRetries?: number
-  ssoLoginCommand?: string
+  ssoLoginCommand?: StructuredSsoLoginCommand
 }
 
-const AWS_AUTH_ERROR_PATTERNS = [
+export const AWS_AUTH_ERROR_PATTERNS = [
   "ExpiredToken",
   "TokenRefreshRequired",
   "The security token included in the request is expired",
@@ -25,63 +24,92 @@ const AWS_AUTH_ERROR_PATTERNS = [
   "RequestId:",
 ]
 
-export function hasAwsAuthError(output: unknown): boolean {
-  const outputStr = typeof output === "string" 
-    ? output.toLowerCase() 
-    : JSON.stringify(output).toLowerCase()
-  
-  return AWS_AUTH_ERROR_PATTERNS.some(pattern => 
-    outputStr.includes(pattern.toLowerCase())
-  )
+const monitoredTools = new Set(["bash", "task"])
+
+function stringifyOutput(output: unknown): string {
+  if (typeof output === "string") return output
+  if (output === undefined) return ""
+  try {
+    return JSON.stringify(output) ?? ""
+  } catch {
+    return String(output)
+  }
 }
 
-export const AwsAuthRefreshPlugin: Plugin<AwsAuthRefreshConfig> = async (ctx, config = {}) => {
-  const { client, $ } = ctx
-  const {
-    profile = process.env.AWS_PROFILE || "default",
-    autoRetry = true,
-    maxRetries = 1,
+export function hasAwsAuthError(output: unknown): boolean {
+  const outputStr = stringifyOutput(output).toLowerCase()
+  return AWS_AUTH_ERROR_PATTERNS.some((pattern) => outputStr.includes(pattern.toLowerCase()))
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function toStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const args = value.filter((item): item is string => typeof item === "string")
+  return args.length === value.length ? args : undefined
+}
+
+function parseConfig(options: PluginOptions | undefined): AwsAuthRefreshConfig {
+  if (!isRecord(options)) return {}
+  const commandValue = options.ssoLoginCommand
+  const ssoLoginCommand = isRecord(commandValue) && typeof commandValue.command === "string"
+    ? { command: commandValue.command, args: toStringArray(commandValue.args) ?? [] }
+    : undefined
+
+  return {
+    profile: typeof options.profile === "string" ? options.profile : undefined,
+    maxRetries: typeof options.maxRetries === "number" ? options.maxRetries : undefined,
     ssoLoginCommand,
-  } = config
+  }
+}
+
+export const AwsAuthRefreshPlugin: Plugin = async (ctx, options) => {
+  const { client, $ } = ctx
+  const config = parseConfig(options)
+  const profile = config.profile ?? process.env.AWS_PROFILE ?? "default"
+  const maxRetries = config.maxRetries ?? 1
+  const refreshCommand = config.ssoLoginCommand ?? {
+    command: "aws",
+    args: ["sso", "login", "--profile", profile],
+  }
 
   let refreshInProgress = false
   let refreshPromise: Promise<void> | null = null
+  let refreshAttempts = 0
 
-  async function refreshAwsCredentials(): Promise<boolean> {
+  async function log(level: "info" | "warn" | "error", message: string): Promise<void> {
+    await client.app.log({
+      body: {
+        service: "aws-auth-refresh",
+        level,
+        message,
+      },
+    })
+  }
+
+  async function refreshAwsCredentials(): Promise<void> {
     if (refreshInProgress && refreshPromise) {
       await refreshPromise
-      return true
+      return
     }
 
+    if (refreshAttempts >= maxRetries) {
+      await log("warn", `Max refresh attempts (${maxRetries}) reached for AWS auth refresh`)
+      return
+    }
+
+    refreshAttempts += 1
     refreshInProgress = true
     refreshPromise = (async () => {
       try {
-        const loginCmd = ssoLoginCommand || `aws sso login --profile ${profile}`
-        await client.app.log({
-          body: {
-            service: "aws-auth-refresh",
-            level: "info",
-            message: `AWS credentials expired, running: ${loginCmd}`,
-          },
-        })
-
-        await $`${loginCmd}`.quiet()
-        
-        await client.app.log({
-          body: {
-            service: "aws-auth-refresh",
-            level: "info",
-            message: "AWS credentials refreshed successfully",
-          },
-        })
+        const args = refreshCommand.args ?? []
+        await log("info", `AWS credentials expired, running: ${refreshCommand.command} ${args.join(" ")}`.trim())
+        await $`${refreshCommand.command} ${args}`.quiet()
+        await log("info", "AWS credentials refreshed successfully")
       } catch (error) {
-        await client.app.log({
-          body: {
-            service: "aws-auth-refresh",
-            level: "error",
-            message: `Failed to refresh AWS credentials: ${error}`,
-          },
-        })
+        await log("error", `Failed to refresh AWS credentials: ${error}`)
         throw error
       } finally {
         refreshInProgress = false
@@ -90,66 +118,17 @@ export const AwsAuthRefreshPlugin: Plugin<AwsAuthRefreshConfig> = async (ctx, co
     })()
 
     await refreshPromise
-    return true
   }
 
   return {
-    "tool.execute.before": async (input, output) => {
-      const toolName = input.tool
-      
-      if (!["bash", "task"].includes(toolName)) {
-        return
-      }
-
-      output._aws_retries = output._aws_retries || 0
-    },
-
     "tool.execute.after": async (input, output) => {
-      const toolName = input.tool
-      
-      if (!["bash", "task"].includes(toolName)) {
-        return
-      }
-
-      if (!hasAwsAuthError(output)) {
-        return
-      }
-
-      const retries = output._aws_retries || 0
-      
-      if (retries >= maxRetries) {
-        await client.app.log({
-          body: {
-            service: "aws-auth-refresh",
-            level: "warn",
-            message: `Max retries (${maxRetries}) reached for AWS auth refresh`,
-          },
-        })
-        return
-      }
+      if (!monitoredTools.has(input.tool)) return
+      if (!hasAwsAuthError(output.output)) return
 
       try {
-        const refreshed = await refreshAwsCredentials()
-        
-        if (refreshed && autoRetry && input.retry) {
-          output._aws_retries = retries + 1
-          await client.app.log({
-            body: {
-              service: "aws-auth-refresh",
-              level: "info",
-              message: "Retrying tool after credential refresh",
-            },
-          })
-          await input.retry()
-        }
+        await refreshAwsCredentials()
       } catch (error) {
-        await client.app.log({
-          body: {
-            service: "aws-auth-refresh",
-            level: "error",
-            message: `Failed to handle AWS auth error: ${error}`,
-          },
-        })
+        await log("error", `Failed to handle AWS auth error: ${error}`)
       }
     },
   }

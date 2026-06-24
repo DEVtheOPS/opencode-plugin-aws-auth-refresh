@@ -1,7 +1,7 @@
 {
   "name": "@devtheops/opencode-plugin-aws-auth-refresh",
   "version": "0.1.0",
-  "description": "OpenCode plugin that auto-refreshes AWS credentials when auth errors are detected",
+  "description": "OpenCode plugin that refreshes AWS credentials when auth errors are detected",
   "keywords": [
     "opencode",
     "aws",
@@ -20,22 +20,36 @@
     "url": "https://github.com/DEVtheOPS/opencode-plugin-aws-auth-refresh.git"
   },
   "type": "module",
-  "main": "src/index.ts",
-  "module": "src/index.ts",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
   },
   "files": [
-    "src/"
+    "dist/"
+  ],
+  "oc-plugin": [
+    "server"
   ],
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
+    "build": "bun build src/index.ts --outdir=./dist --target=node && tsc -p tsconfig.build.json",
+    "prepack": "bun run build",
+    "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@opencode-ai/plugin": "^1.2.23"
+    "@opencode-ai/plugin": "^1.14.20"
   },
   "devDependencies": {
     "@types/bun": "latest",
