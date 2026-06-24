@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test"
-import { AwsAuthRefreshPlugin, hasAwsAuthError } from "../src/index.ts"
+import { AwsAuthRefreshPlugin, hasAwsAuthError, isAwsProviderAuthError } from "../src/index.ts"
 
 type ShellCall = {
   strings: string[]
@@ -66,20 +66,42 @@ function createContext() {
   }
 }
 
-function toolInput(tool = "bash") {
+function providerAuthErrorEvent(message = "AWS credential provider failed", providerID = "amazon-bedrock") {
   return {
-    tool,
-    sessionID: "session-1",
-    callID: "call-1",
-    args: {},
+    event: {
+      type: "session.error" as const,
+      properties: {
+        sessionID: "session-1",
+        error: {
+          name: "ProviderAuthError",
+          data: { providerID, message },
+        },
+      },
+    },
   }
 }
 
-function toolOutput(output: string) {
+function unknownErrorEvent(message: string) {
   return {
-    title: "AWS command",
-    output,
-    metadata: {},
+    event: {
+      type: "session.error" as const,
+      properties: {
+        sessionID: "session-1",
+        error: {
+          name: "UnknownError",
+          data: { message },
+        },
+      },
+    },
+  }
+}
+
+function otherEvent(type: string) {
+  return {
+    event: {
+      type,
+      properties: {},
+    },
   }
 }
 
@@ -93,8 +115,8 @@ describe("hasAwsAuthError", () => {
     expect(hasAwsAuthError("Missing credentials in config")).toBe(true)
     expect(hasAwsAuthError("credentials could not be found")).toBe(true)
     expect(hasAwsAuthError("Error retrieving credentials from container")).toBe(true)
-    expect(hasAwsAuthError("EC2MetadataServiceError: timeout")).toBe(true)
-    expect(hasAwsAuthError("RequestId: 1234-5678-90ab-cdef")).toBe(true)
+    expect(hasAwsAuthError("The SSO session associated with this profile has expired")).toBe(true)
+    expect(hasAwsAuthError("AWS credential provider failed")).toBe(true)
   })
 
   test("returns false for non-auth and empty output", () => {
@@ -110,6 +132,32 @@ describe("hasAwsAuthError", () => {
   })
 })
 
+describe("isAwsProviderAuthError", () => {
+  test("matches ProviderAuthError from AWS providers with auth patterns", () => {
+    expect(isAwsProviderAuthError({ name: "ProviderAuthError", data: { providerID: "amazon-bedrock", message: "The SSO session associated with this profile has expired" } })).toBe(true)
+    expect(isAwsProviderAuthError({ name: "ProviderAuthError", data: { providerID: "bedrock", message: "AWS credential provider failed" } })).toBe(true)
+  })
+
+  test("ignores AWS ProviderAuthError without auth patterns", () => {
+    expect(isAwsProviderAuthError({ name: "ProviderAuthError", data: { providerID: "amazon-bedrock", message: "access denied to model" } })).toBe(false)
+  })
+
+  test("ignores ProviderAuthError from non-AWS providers", () => {
+    expect(isAwsProviderAuthError({ name: "ProviderAuthError", data: { providerID: "anthropic", message: "ExpiredToken" } })).toBe(false)
+  })
+
+  test("falls back to string matching for UnknownError", () => {
+    expect(isAwsProviderAuthError({ name: "UnknownError", data: { message: "The SSO session associated with this profile has expired" } })).toBe(true)
+    expect(isAwsProviderAuthError({ name: "UnknownError", data: { message: "rate limit exceeded" } })).toBe(false)
+  })
+
+  test("ignores other error types and non-objects", () => {
+    expect(isAwsProviderAuthError({ name: "APIError", data: { message: "ExpiredToken" } })).toBe(false)
+    expect(isAwsProviderAuthError(undefined)).toBe(false)
+    expect(isAwsProviderAuthError("ExpiredToken")).toBe(false)
+  })
+})
+
 describe("AwsAuthRefreshPlugin", () => {
   beforeEach(() => {
     if (originalAwsProfile === undefined) delete process.env.AWS_PROFILE
@@ -122,21 +170,22 @@ describe("AwsAuthRefreshPlugin", () => {
     expect(exports.default).toBe(exports.AwsAuthRefreshPlugin)
   })
 
-  test("returns only official after hook", async () => {
+  test("returns only the session error event hook", async () => {
     const { ctx } = createContext()
     const hooks = await AwsAuthRefreshPlugin(ctx as never, {})
 
     expect(typeof hooks).toBe("object")
-    expect(typeof hooks["tool.execute.after"]).toBe("function")
+    expect(typeof hooks.event).toBe("function")
+    expect("tool.execute.after" in hooks).toBe(false)
     expect("tool.execute.before" in hooks).toBe(false)
   })
 
-  test("uses official output.output shape and default profile", async () => {
+  test("uses official error shape and default profile", async () => {
     process.env.AWS_PROFILE = "env-profile"
     const { ctx, shell } = createContext()
     const hooks = await AwsAuthRefreshPlugin(ctx as never, {})
 
-    await hooks["tool.execute.after"]?.(toolInput(), toolOutput("ExpiredToken"))
+    await hooks.event?.(providerAuthErrorEvent() as never)
 
     expect(shell.calls).toHaveLength(1)
     expect(shell.calls[0]?.values).toEqual(["aws", ["sso", "login", "--profile", "env-profile"]])
@@ -147,7 +196,7 @@ describe("AwsAuthRefreshPlugin", () => {
     const { ctx, shell } = createContext()
     const hooks = await AwsAuthRefreshPlugin(ctx as never, { profile: "config-profile" })
 
-    await hooks["tool.execute.after"]?.(toolInput(), toolOutput("ExpiredToken"))
+    await hooks.event?.(providerAuthErrorEvent() as never)
 
     expect(shell.calls[0]?.values).toEqual(["aws", ["sso", "login", "--profile", "config-profile"]])
   })
@@ -157,7 +206,7 @@ describe("AwsAuthRefreshPlugin", () => {
     const { ctx, shell } = createContext()
     const hooks = await AwsAuthRefreshPlugin(ctx as never, {})
 
-    await hooks["tool.execute.after"]?.(toolInput(), toolOutput("ExpiredToken"))
+    await hooks.event?.(providerAuthErrorEvent() as never)
 
     expect(shell.calls[0]?.values).toEqual(["aws", ["sso", "login", "--profile", "default"]])
   })
@@ -171,7 +220,7 @@ describe("AwsAuthRefreshPlugin", () => {
       },
     })
 
-    await hooks["tool.execute.after"]?.(toolInput(), toolOutput("ExpiredToken"))
+    await hooks.event?.(providerAuthErrorEvent() as never)
 
     expect(shell.calls[0]?.values).toEqual(["aws-vault", ["exec", "dev", "--", "aws", "sso", "login"]])
   })
@@ -181,7 +230,7 @@ describe("AwsAuthRefreshPlugin", () => {
     const { ctx, shell } = createContext()
     const hooks = await AwsAuthRefreshPlugin(ctx as never, { autoRetry: true })
 
-    await hooks["tool.execute.after"]?.({ ...toolInput(), retry } as never, toolOutput("ExpiredToken"))
+    await hooks.event?.({ ...providerAuthErrorEvent(), retry } as never)
 
     expect(shell.calls).toHaveLength(1)
     expect(retry).not.toHaveBeenCalled()
@@ -192,8 +241,8 @@ describe("AwsAuthRefreshPlugin", () => {
     shell.blockNext()
     const hooks = await AwsAuthRefreshPlugin(ctx as never, {})
 
-    const first = hooks["tool.execute.after"]?.(toolInput(), toolOutput("ExpiredToken"))
-    const second = hooks["tool.execute.after"]?.(toolInput(), toolOutput("Unable to locate credentials"))
+    const first = hooks.event?.(providerAuthErrorEvent() as never)
+    const second = hooks.event?.(providerAuthErrorEvent() as never)
 
     await Promise.resolve()
     await Promise.resolve()
@@ -203,30 +252,48 @@ describe("AwsAuthRefreshPlugin", () => {
     expect(shell.calls).toHaveLength(1)
   })
 
-  test("ignores non-monitored tools", async () => {
+  test("ignores non session.error events", async () => {
     const { ctx, shell } = createContext()
     const hooks = await AwsAuthRefreshPlugin(ctx as never, {})
 
-    await hooks["tool.execute.after"]?.(toolInput("webfetch"), toolOutput("ExpiredToken"))
+    await hooks.event?.(otherEvent("session.idle") as never)
 
     expect(shell.calls).toHaveLength(0)
   })
 
-  test("ignores non-AWS output", async () => {
+  test("ignores provider auth errors from non-AWS providers", async () => {
     const { ctx, shell } = createContext()
     const hooks = await AwsAuthRefreshPlugin(ctx as never, {})
 
-    await hooks["tool.execute.after"]?.(toolInput(), toolOutput("command completed successfully"))
+    await hooks.event?.(providerAuthErrorEvent("auth failed", "anthropic") as never)
 
     expect(shell.calls).toHaveLength(0)
+  })
+
+  test("ignores unknown errors without AWS auth patterns", async () => {
+    const { ctx, shell } = createContext()
+    const hooks = await AwsAuthRefreshPlugin(ctx as never, {})
+
+    await hooks.event?.(unknownErrorEvent("rate limit exceeded") as never)
+
+    expect(shell.calls).toHaveLength(0)
+  })
+
+  test("refreshes on AWS auth patterns in unknown errors", async () => {
+    const { ctx, shell } = createContext()
+    const hooks = await AwsAuthRefreshPlugin(ctx as never, {})
+
+    await hooks.event?.(unknownErrorEvent("The SSO session associated with this profile has expired") as never)
+
+    expect(shell.calls).toHaveLength(1)
   })
 
   test("limits refresh attempts with maxRetries", async () => {
     const { ctx, shell, log } = createContext()
     const hooks = await AwsAuthRefreshPlugin(ctx as never, { maxRetries: 1 })
 
-    await hooks["tool.execute.after"]?.(toolInput(), toolOutput("ExpiredToken"))
-    await hooks["tool.execute.after"]?.(toolInput(), toolOutput("ExpiredToken"))
+    await hooks.event?.(providerAuthErrorEvent() as never)
+    await hooks.event?.(providerAuthErrorEvent() as never)
 
     expect(shell.calls).toHaveLength(1)
     expect(log).toHaveBeenCalledWith({
@@ -243,7 +310,7 @@ describe("AwsAuthRefreshPlugin", () => {
     shell.rejectNext(new Error("login failed"))
     const hooks = await AwsAuthRefreshPlugin(ctx as never, {})
 
-    await expect(hooks["tool.execute.after"]?.(toolInput(), toolOutput("ExpiredToken"))).resolves.toBeUndefined()
+    await expect(hooks.event?.(providerAuthErrorEvent() as never)).resolves.toBeUndefined()
 
     expect(log).toHaveBeenCalledWith({
       body: {

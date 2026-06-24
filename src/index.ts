@@ -11,6 +11,8 @@ export interface AwsAuthRefreshConfig {
   ssoLoginCommand?: StructuredSsoLoginCommand
 }
 
+export const AWS_PROVIDER_IDS = new Set(["amazon-bedrock", "bedrock"])
+
 export const AWS_AUTH_ERROR_PATTERNS = [
   "ExpiredToken",
   "TokenRefreshRequired",
@@ -20,11 +22,11 @@ export const AWS_AUTH_ERROR_PATTERNS = [
   "Missing credentials",
   "credentials could not be found",
   "Error retrieving credentials",
-  "EC2MetadataServiceError",
-  "RequestId:",
+  "The SSO session associated with this profile has expired",
+  "SSO session",
+  "run aws sso login",
+  "AWS credential provider failed",
 ]
-
-const monitoredTools = new Set(["bash", "task"])
 
 function stringifyOutput(output: unknown): string {
   if (typeof output === "string") return output
@@ -39,6 +41,23 @@ function stringifyOutput(output: unknown): string {
 export function hasAwsAuthError(output: unknown): boolean {
   const outputStr = stringifyOutput(output).toLowerCase()
   return AWS_AUTH_ERROR_PATTERNS.some((pattern) => outputStr.includes(pattern.toLowerCase()))
+}
+
+export function isAwsProviderAuthError(error: unknown): boolean {
+  if (!isRecord(error)) return false
+
+  if (error.name === "ProviderAuthError") {
+    const data = isRecord(error.data) ? error.data : undefined
+    const providerID = typeof data?.providerID === "string" ? data.providerID : undefined
+    if (providerID === undefined || !AWS_PROVIDER_IDS.has(providerID)) return false
+    return hasAwsAuthError(error)
+  }
+
+  if (error.name === "UnknownError") {
+    return hasAwsAuthError(error)
+  }
+
+  return false
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -121,14 +140,15 @@ export const AwsAuthRefreshPlugin: Plugin = async (ctx, options) => {
   }
 
   return {
-    "tool.execute.after": async (input, output) => {
-      if (!monitoredTools.has(input.tool)) return
-      if (!hasAwsAuthError(output.output)) return
+    event: async ({ event }) => {
+      if (event.type !== "session.error") return
+      const error = event.properties?.error
+      if (!isAwsProviderAuthError(error)) return
 
       try {
         await refreshAwsCredentials()
-      } catch (error) {
-        await log("error", `Failed to handle AWS auth error: ${error}`)
+      } catch (refreshError) {
+        await log("error", `Failed to handle AWS auth error: ${refreshError}`)
       }
     },
   }
