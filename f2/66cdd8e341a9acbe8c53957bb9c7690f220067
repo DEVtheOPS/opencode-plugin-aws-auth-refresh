@@ -1,0 +1,33 @@
+src/index.ts
+  s_0827191bf6f729::t_091e0aa3457b54 14-15,46-51,54-60
+  s_0827191bf6f729::t_f7f72025e42e14 143-145,150-151
+  s_0827191bf6f729::t_19582f1ab6ec24 146
+  s_0827191bf6f729::t_68a6cdfff44d9a 52-53
+  s_0827191bf6f729::t_558b60d7b64103 25-28
+tests/index.test.ts
+  s_0827191bf6f729::t_ed3878037a87b3 118-119
+  s_0827191bf6f729::t_4c4ceb81dcc774 2
+  s_0827191bf6f729::t_8b949e1d3bccd7 188,199,209,223,233,244-245,295-296,313
+  s_0827191bf6f729::t_e360c7e4c492e3 71-75,93-95,99,101-104
+  s_0827191bf6f729::t_14c8df56e134f1 264,268,273,277,282-288
+  s_0827191bf6f729::t_267f0b3682547a 69,76-92
+  s_0827191bf6f729::t_07bc89ddd62db5 135,139-140,145,147-160
+  s_0827191bf6f729::t_18c9969ca75e69 136-138,141-144,146
+  s_0827191bf6f729::t_4f5cbcf3da1132 173,178-179,183,255-259
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "f266cdd8e341a9acbe8c53957bb9c7690f220067",
+  "prompts": {},
+  "sessions": {
+    "s_0827191bf6f729": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_105f62e92ffetONwwCDbqeC0fN",
+        "model": "Opus (4.8)"
+      },
+      "human_author": "Marc Seiler <mseiler@gmail.com>"
+    }
+  }
+}
